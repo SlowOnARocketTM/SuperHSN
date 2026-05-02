@@ -73,10 +73,6 @@ function isAmericanFootballSport(sport: Sport) {
 function isRealFootballMatch(match: Match) {
   const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
 
-  if (isAmericanFootballMatch(match)) {
-    return false;
-  }
-
   return (
     combined.includes('football') ||
     combined.includes('soccer') ||
@@ -155,7 +151,7 @@ export default function Home() {
         ]);
 
         const footballSportIds = sportsResponse
-          .filter((s) => isFootballSport(s) && !isAmericanFootballSport(s))
+          .filter(isFootballSport)
           .map((sport) => sport.id);
         const formulaOneSportIds = sportsResponse.filter(isFormulaOneSport).map((sport) => sport.id);
         const allowedSportIds = new Set([...footballSportIds, ...formulaOneSportIds]);
