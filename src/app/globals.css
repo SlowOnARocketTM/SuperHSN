@@ -51,6 +51,35 @@ img {
   margin: 0 auto;
 }
 
+.topbar {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 72px;
+  z-index: 60;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  background: linear-gradient(180deg, rgba(10,10,10,0.6), rgba(10,10,10,0.4));
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-title {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
 .ambient {
   position: fixed;
   inset: auto;
@@ -204,7 +233,7 @@ img {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 24px;
   align-items: start;
 }
@@ -274,6 +303,26 @@ img {
   flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
+  margin-bottom: 30px;
+}
+
+.league-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.league-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.league-group + .league-group {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255,255,255,0.04);
 }
 
 .filter-chip,
@@ -335,18 +384,21 @@ img {
 
 .match-list {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: start;
 }
 
 .match-card {
   width: 100%;
   text-align: left;
   padding: 0;
-  border-radius: 24px;
+  border-radius: 16px;
   overflow: hidden;
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
 .match-card.selected {
@@ -355,8 +407,10 @@ img {
 
 .match-visual {
   position: relative;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
-  min-height: 168px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+  min-height: 120px;
+  height: 0;
+  padding-top: 56%; /* 16:9-ish */
 }
 
 .match-visual img {
@@ -371,13 +425,13 @@ img {
   place-items: center;
   grid-template-columns: auto auto auto;
   gap: 12px;
-  padding: 18px;
+  padding: 14px;
 }
 
 .badge-row img,
 .mini-badges img {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
 }
 
@@ -386,8 +440,7 @@ img {
   font-weight: 700;
 }
 
-.status-pill,
-.category-pill {
+.status-pill {
   position: absolute;
   top: 12px;
   left: 12px;
@@ -406,9 +459,9 @@ img {
 }
 
 .match-copy {
-  padding: 18px 18px 18px 20px;
+  padding: 12px 12px 14px 12px;
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .match-title-row,
@@ -422,12 +475,11 @@ img {
 .match-title-row h3,
 .selected-match h3 {
   margin: 0;
-  font-size: 1.15rem;
-}
-
-.category-pill {
-  position: static;
-  align-self: start;
+  font-size: 1rem;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .team-line {
@@ -461,6 +513,19 @@ img {
   max-height: 240px;
   object-fit: cover;
   border-radius: 22px;
+}
+
+.match-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+}
+
+.match-visual img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .iframe-shell {
@@ -524,6 +589,31 @@ img {
   padding: 28px;
 }
 
+.match-modal .modal {
+  max-width: 920px;
+}
+
+/* Make match modal feel native on mobile */
+@media (max-width: 760px) {
+  .match-modal .modal {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .match-modal .player-poster {
+    display: none;
+  }
+
+  .topbar {
+    height: 64px;
+  }
+}
+
 .primary-button {
   margin-top: 18px;
   padding: 12px 18px;
@@ -554,12 +644,18 @@ img {
     border-radius: 16px;
   }
 
+  .match-list {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+
   .match-card {
-    grid-template-columns: 1fr;
+    min-height: 160px;
   }
 
   .match-visual {
-    min-height: 220px;
+    min-height: 0;
+    padding-top: 56%;
   }
 
   .section-header,
@@ -571,6 +667,7 @@ img {
 
   .filter-bar {
     justify-content: flex-start;
+    margin-bottom: 22px;
   }
 
   .hero-note {

@@ -40,7 +40,7 @@ type Stream = {
   source: string;
 };
 
-type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming' | 'popular';
+type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming';
 
 const API_BASE = 'https://streamed.pk/api';
 const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
@@ -63,6 +63,11 @@ function isAmericanFootballMatch(match: Match) {
   return /american football|nfl|college football|gridiron|super bowl|touchdown/i.test(
     `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`
   );
+}
+
+function isAmericanFootballSport(sport: Sport) {
+  const value = `${sport.id} ${sport.name}`.toLowerCase();
+  return /american football|nfl|college football|gridiron/.test(value);
 }
 
 function isRealFootballMatch(match: Match) {
@@ -122,12 +127,13 @@ export default function Home() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [liveMatchIds, setLiveMatchIds] = useState<string[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [showMatchModal, setShowMatchModal] = useState(false);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [activeStream, setActiveStream] = useState<Stream | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [loadingPlayer, setLoadingPlayer] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   useEffect(() => {
@@ -148,7 +154,9 @@ export default function Home() {
           fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal)
         ]);
 
-        const footballSportIds = sportsResponse.filter(isFootballSport).map((sport) => sport.id);
+        const footballSportIds = sportsResponse
+          .filter((s) => isFootballSport(s) && !isAmericanFootballSport(s))
+          .map((sport) => sport.id);
         const formulaOneSportIds = sportsResponse.filter(isFormulaOneSport).map((sport) => sport.id);
         const allowedSportIds = new Set([...footballSportIds, ...formulaOneSportIds]);
         const liveIds = new Set(liveMatches.map((match) => match.id));
@@ -259,13 +267,9 @@ export default function Home() {
         return !liveMatchIds.includes(match.id) && match.date >= now;
       }
 
-      if (activeFilter === 'popular') {
-        return match.popular;
-      }
-
       return true;
     });
-  }, [activeFilter, matches]);
+  }, [activeFilter, liveMatchIds, matches]);
 
   const selectedPoster = buildPosterUrl(selectedMatch?.poster);
   const selectedBadgeHome = buildBadgeUrl(selectedMatch?.teams?.home?.badge);
@@ -287,7 +291,6 @@ export default function Home() {
               className="primary-button"
               onClick={() => {
                 window.localStorage.setItem(DISCLAIMER_KEY, 'acknowledged');
-                setShowDisclaimer(false);
               }}
             >
               I Understand
@@ -305,7 +308,7 @@ export default function Home() {
           <h1>Football and Formula 1 embeds.</h1>
           <div className="hero-note" aria-label="Feed summary">
             <span>{sports.length || '—'} sports</span>
-            <span>{visibleMatches.length || '—'} matches</span>
+            <span>{matches.length || '—'} matches</span>
           </div>
         </div>
       </section>
@@ -317,26 +320,25 @@ export default function Home() {
               <p className="eyebrow">Browse</p>
               <h2>Curated live feed</h2>
             </div>
+          </div>
 
-            <div className="filter-bar" role="tablist" aria-label="Match filters">
-              {[
-                ['all', 'All'],
-                ['football', 'Football'],
-                ['formula1', 'Formula 1'],
-                ['live', 'Live'],
-                ['upcoming', 'Upcoming'],
-                ['popular', 'Popular']
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={activeFilter === key ? 'filter-chip active' : 'filter-chip'}
-                  onClick={() => setActiveFilter(key as FilterKey)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          <div className="filter-bar" role="tablist" aria-label="Match selectors">
+            {[
+              ['all', 'All'],
+              ['football', 'Football'],
+              ['formula1', 'Formula 1'],
+              ['live', 'Live'],
+              ['upcoming', 'Upcoming']
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={activeFilter === key ? 'filter-chip active' : 'filter-chip'}
+                onClick={() => setActiveFilter(key as FilterKey)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {loadingFeed ? <div className="empty-card">Loading the feed from the external API.</div> : null}
@@ -355,7 +357,10 @@ export default function Home() {
                   key={match.id}
                   type="button"
                   className={isSelected ? 'match-card selected' : 'match-card'}
-                  onClick={() => setSelectedMatch(match)}
+                  onClick={() => {
+                    setSelectedMatch(match);
+                    setShowMatchModal(true);
+                  }}
                 >
                   <div className="match-visual">
                     {poster ? (
@@ -375,7 +380,6 @@ export default function Home() {
                   <div className="match-copy">
                     <div className="match-title-row">
                       <h3>{match.title}</h3>
-                      <span className="category-pill">{match.category}</span>
                     </div>
 
                     <p>{formatDate(match.date)}</p>
@@ -391,69 +395,61 @@ export default function Home() {
               );
             })}
 
-            {!loadingFeed && visibleMatches.length === 0 ? (
-              <div className="empty-card">No matches matched the current filter.</div>
-            ) : null}
+            {!loadingFeed && visibleMatches.length === 0 ? <div className="empty-card">No matches available right now.</div> : null}
           </div>
         </div>
 
-        <aside className="player-column">
-          <div className="player-card">
+        {/* Right-side embed removed — player now only appears in the modal */}
+      </section>
+
+      {showMatchModal && selectedMatch ? (
+        <div className="modal-backdrop match-modal" role="presentation" onClick={() => setShowMatchModal(false)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="match-title" onClick={(e) => e.stopPropagation()}>
             <div className="section-header compact">
               <div>
-                <p className="eyebrow">Player</p>
-                <h2>External embed</h2>
+                <p className="eyebrow">Match</p>
+                <h1 id="match-title">{selectedMatch.title}</h1>
+                <p className="hero-note">{formatDate(selectedMatch.date)}</p>
+              </div>
+              <div>
+                <button type="button" className="primary-button" onClick={() => setShowMatchModal(false)}>Close</button>
               </div>
             </div>
 
-            {selectedMatch ? (
-              <>
-                <div className="selected-match">
-                  <div>
-                    <h3>{selectedMatch.title}</h3>
-                    <p>{formatDate(selectedMatch.date)}</p>
-                  </div>
-                  <div className="mini-badges">
-                    {selectedBadgeHome ? <img src={selectedBadgeHome} alt="Home team badge" /> : null}
-                    {selectedBadgeAway ? <img src={selectedBadgeAway} alt="Away team badge" /> : null}
-                  </div>
-                </div>
+            <div className="player-frame-wrap">
+              {buildPosterUrl(selectedMatch.poster) ? (
+                <img className="player-poster" src={buildPosterUrl(selectedMatch.poster) ?? undefined} alt={selectedMatch.title} />
+              ) : null}
 
-                <div className="player-frame-wrap">
-                  {selectedPoster ? <img className="player-poster" src={selectedPoster} alt={selectedMatch.title} /> : null}
-                  <div className="iframe-shell">
-                    {loadingPlayer ? <div className="empty-card inset">Loading embed.</div> : null}
-                    {!loadingPlayer && !activeStream ? <div className="empty-card inset">Choose a source to load the player.</div> : null}
-                    {activeStream ? (
-                      <iframe
-                        title={selectedMatch.title}
-                        src={activeStream.embedUrl}
-                        allow="autoplay; fullscreen; picture-in-picture"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : null}
-                  </div>
-                </div>
+              <div className="iframe-shell">
+                {loadingPlayer ? <div className="empty-card inset">Loading embed.</div> : null}
+                {!loadingPlayer && !activeStream ? <div className="empty-card inset">Choose a source to load the player.</div> : null}
+                {activeStream ? (
+                  <iframe
+                    title={selectedMatch.title}
+                    src={activeStream.embedUrl}
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : null}
+              </div>
+            </div>
 
-                <div className="stream-pills" aria-label="Available streams">
-                  {streams.map((stream) => (
-                    <button
-                      key={`${stream.source}-${stream.streamNo}-${stream.language}-${stream.id}`}
-                      type="button"
-                      className={activeStream?.id === stream.id ? 'stream-pill active' : 'stream-pill'}
-                      onClick={() => setActiveStream(stream)}
-                    >
-                      {stream.language} {stream.hd ? 'HD' : 'SD'}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="empty-card">Pick a match to load its external embed.</div>
-            )}
-          </div>
-        </aside>
-      </section>
+            <div className="stream-pills" aria-label="Available streams">
+              {streams.map((stream) => (
+                <button
+                  key={`${stream.source}-${stream.streamNo}-${stream.language}-${stream.id}`}
+                  type="button"
+                  className={activeStream?.id === stream.id ? 'stream-pill active' : 'stream-pill'}
+                  onClick={() => setActiveStream(stream)}
+                >
+                  {stream.language} {stream.hd ? 'HD' : 'SD'}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

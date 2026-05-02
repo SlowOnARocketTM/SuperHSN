@@ -19,7 +19,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={spaceGrotesk.variable}>{children}</body>
+      <body className={spaceGrotesk.variable}>
+        <header className="topbar">
+          <div className="topbar-inner shell">
+            <div className="brand">
+              <span className="brand-mark">HSN+</span>
+              <strong className="brand-title">HSN+ Feed</strong>
+            </div>
+          </div>
+        </header>
+
+        <div style={{ paddingTop: 72 }}>{children}</div>
+      </body>
     </html>
   );
 }
