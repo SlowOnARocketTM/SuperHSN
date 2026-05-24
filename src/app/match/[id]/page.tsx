@@ -139,6 +139,8 @@ export default function MatchPage() {
       return;
     }
 
+    const currentMatch = match;
+
     const controller = new AbortController();
 
     async function loadStreams() {
@@ -146,7 +148,7 @@ export default function MatchPage() {
         setLoadingStreams(true);
         setError(null);
 
-        const source = match.sources[0];
+        const source = currentMatch.sources[0];
 
         if (!source) {
           throw new Error('No stream sources available.');
