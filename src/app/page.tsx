@@ -1,136 +1,35 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-type Sport = {
-  id: string;
-  name: string;
-};
+import {
+  API_BASE,
+  Match,
+  Sport,
+  buildBadgeUrl,
+  buildPosterUrl,
+  fetchJson,
+  formatDate,
+  isFootballSport,
+  isFormulaOneSport,
+  isRealFootballMatch,
+  looksLikeFormulaOneMatch
+} from '@/lib/streamed';
 
-type MatchSource = {
-  source: string;
-  id: string;
-};
-
-type Team = {
-  name?: string;
-  badge?: string;
-};
-
-type Match = {
-  id: string;
-  title: string;
-  category: string;
-  date: number;
-  poster?: string;
-  popular: boolean;
-  teams?: {
-    home?: Team;
-    away?: Team;
-  };
-  sources: MatchSource[];
-};
-
-type Stream = {
-  id: string;
-  streamNo: number;
-  language: string;
-  hd: boolean;
-  embedUrl: string;
-  source: string;
-};
+const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
 
 type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming';
 
-const API_BASE = 'https://streamed.pk/api';
-const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
-
-function isFootballSport(sport: Sport) {
-  const value = `${sport.id} ${sport.name}`.toLowerCase();
-  return value.includes('football') || value.includes('soccer');
-}
-
-function isFormulaOneSport(sport: Sport) {
-  const value = `${sport.id} ${sport.name}`.toLowerCase();
-  return value.includes('formula 1') || value.includes('formula1') || value === 'f1' || value.includes(' f1 ');
-}
-
-function looksLikeFormulaOneMatch(match: Match) {
-  return /formula\s*1|\bf1\b|grand prix|formula one/i.test(`${match.category} ${match.title}`);
-}
-
-function isAmericanFootballMatch(match: Match) {
-  return /american football|nfl|college football|gridiron|super bowl|touchdown/i.test(
-    `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`
-  );
-}
-
-function isAmericanFootballSport(sport: Sport) {
-  const value = `${sport.id} ${sport.name}`.toLowerCase();
-  return /american football|nfl|college football|gridiron/.test(value);
-}
-
-function isRealFootballMatch(match: Match) {
-  const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
-
-  return (
-    combined.includes('football') ||
-    combined.includes('soccer') ||
-    combined.includes('futbol') ||
-    combined.includes('fútbol') ||
-    combined.includes('association football')
-  );
-}
-
-function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat('en', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  }).format(new Date(timestamp));
-}
-
-function buildPosterUrl(poster?: string) {
-  if (!poster) {
-    return null;
-  }
-
-  return poster.startsWith('http') ? poster : `https://streamed.pk${poster}.webp`;
-}
-
-function buildBadgeUrl(badge?: string) {
-  if (!badge) {
-    return null;
-  }
-
-  return `https://streamed.pk/api/images/badge/${badge}.webp`;
-}
-
-async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 export default function Home() {
+  const router = useRouter();
   const [sports, setSports] = useState<Sport[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [liveMatchIds, setLiveMatchIds] = useState<string[]>([]);
-  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [showMatchModal, setShowMatchModal] = useState(false);
-  const [streams, setStreams] = useState<Stream[]>([]);
-  const [activeStream, setActiveStream] = useState<Stream | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [loadingFeed, setLoadingFeed] = useState(true);
-  const [loadingPlayer, setLoadingPlayer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 
   useEffect(() => {
     setShowDisclaimer(window.localStorage.getItem(DISCLAIMER_KEY) !== 'acknowledged');
@@ -183,7 +82,6 @@ export default function Home() {
         setSports(sportsResponse);
         setMatches(curatedMatches);
         setLiveMatchIds([...liveIds]);
-        setSelectedMatch((current) => current ?? curatedMatches[0] ?? null);
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name !== 'AbortError') {
           setError('Unable to load matches from the external API right now.');
@@ -197,51 +95,6 @@ export default function Home() {
 
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    const match = selectedMatch;
-
-    if (!match) {
-      setStreams([]);
-      setActiveStream(null);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadStreams() {
-      try {
-        setLoadingPlayer(true);
-        setError(null);
-
-        const source = match!.sources[0];
-
-        if (!source) {
-          throw new Error('No stream sources available.');
-        }
-
-        const streamList = await fetchJson<Stream[]>(
-          `${API_BASE}/stream/${source.source}/${source.id}`,
-          controller.signal
-        );
-
-        setStreams(streamList);
-        setActiveStream(null);
-      } catch (requestError) {
-        if (requestError instanceof Error && requestError.name !== 'AbortError') {
-          setStreams([]);
-          setActiveStream(null);
-          setError('Unable to load stream embeds for the selected match.');
-        }
-      } finally {
-        setLoadingPlayer(false);
-      }
-    }
-
-    loadStreams();
-
-    return () => controller.abort();
-  }, [selectedMatch]);
 
   const visibleMatches = useMemo(() => {
     const now = Date.now();
@@ -266,10 +119,6 @@ export default function Home() {
       return true;
     });
   }, [activeFilter, liveMatchIds, matches]);
-
-  const selectedPoster = buildPosterUrl(selectedMatch?.poster);
-  const selectedBadgeHome = buildBadgeUrl(selectedMatch?.teams?.home?.badge);
-  const selectedBadgeAway = buildBadgeUrl(selectedMatch?.teams?.away?.badge);
 
   return (
     <main className="shell">
@@ -342,7 +191,6 @@ export default function Home() {
 
           <div className="match-list">
             {visibleMatches.map((match) => {
-              const isSelected = selectedMatch?.id === match.id;
               const poster = buildPosterUrl(match.poster);
               const homeBadge = buildBadgeUrl(match.teams?.home?.badge);
               const awayBadge = buildBadgeUrl(match.teams?.away?.badge);
@@ -352,10 +200,9 @@ export default function Home() {
                 <button
                   key={match.id}
                   type="button"
-                  className={isSelected ? 'match-card selected' : 'match-card'}
+                  className="match-card"
                   onClick={() => {
-                    setSelectedMatch(match);
-                    setShowMatchModal(true);
+                    router.push(`/match/${match.id}`);
                   }}
                 >
                   <div className="match-visual">
@@ -395,57 +242,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right-side embed removed — player now only appears in the modal */}
       </section>
-
-      {showMatchModal && selectedMatch ? (
-        <div className="modal-backdrop match-modal" role="presentation" onClick={() => setShowMatchModal(false)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="match-title" onClick={(e) => e.stopPropagation()}>
-            <div className="section-header compact">
-              <div>
-                <p className="eyebrow">Match</p>
-                <h1 id="match-title">{selectedMatch.title}</h1>
-                <p className="hero-note">{formatDate(selectedMatch.date)}</p>
-              </div>
-              <div>
-                <button type="button" className="primary-button" onClick={() => setShowMatchModal(false)}>Close</button>
-              </div>
-            </div>
-
-            <div className="player-frame-wrap">
-              {buildPosterUrl(selectedMatch.poster) ? (
-                <img className="player-poster" src={buildPosterUrl(selectedMatch.poster) ?? undefined} alt={selectedMatch.title} />
-              ) : null}
-
-              <div className="iframe-shell">
-                {loadingPlayer ? <div className="empty-card inset">Loading embed.</div> : null}
-                {!loadingPlayer && !activeStream ? <div className="empty-card inset">Choose a source to load the player.</div> : null}
-                {activeStream ? (
-                  <iframe
-                    title={selectedMatch.title}
-                    src={activeStream.embedUrl}
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : null}
-              </div>
-            </div>
-
-            <div className="stream-pills" aria-label="Available streams">
-              {streams.map((stream) => (
-                <button
-                  key={`${stream.source}-${stream.streamNo}-${stream.language}-${stream.id}`}
-                  type="button"
-                  className={activeStream?.id === stream.id ? 'stream-pill active' : 'stream-pill'}
-                  onClick={() => setActiveStream(stream)}
-                >
-                  {stream.language} {stream.hd ? 'HD' : 'SD'}
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
-      ) : null}
     </main>
   );
 }
