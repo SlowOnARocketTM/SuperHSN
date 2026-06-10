@@ -1,16 +1,140 @@
-import type { Metadata } from 'next';
-import { Space_Grotesk } from 'next/font/google';
+'use client';
+
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { Outfit } from 'next/font/google';
 import './globals.css';
 
-const spaceGrotesk = Space_Grotesk({
+const outfit = Outfit({
   subsets: ['latin'],
-  variable: '--font-space-grotesk'
+  variable: '--font-outfit'
 });
 
-export const metadata: Metadata = {
-  title: 'HSN+',
-  description: 'A clean football and Formula 1 match browser powered by external API data.'
-};
+function LayoutInner({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState('');
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!search.trim()) return;
+    router.push(`/search/${encodeURIComponent(search.trim())}`);
+    setSearch('');
+  };
+
+  const navItems = [
+    { label: 'Home', href: '/', icon: '⌂' },
+    { label: 'Football', href: '/?filter=football', icon: '⚽' },
+    { label: 'Formula 1', href: '/?filter=formula1', icon: '🏎' },
+  ];
+
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/' && !searchParams.has('filter');
+    if (href.includes('?filter=')) {
+      const filterValue = href.split('?filter=')[1];
+      return searchParams.get('filter') === filterValue;
+    }
+    return pathname === href;
+  };
+
+  return (
+    <>
+      {/* Ambient glows */}
+      <div className="ambient ambient-left" aria-hidden="true" />
+      <div className="ambient ambient-right" aria-hidden="true" />
+
+      {/* Glass Topbar */}
+      <header className="topbar" role="banner">
+        <button className="brand-block" onClick={() => router.push('/')} aria-label="HSN+ home">
+          <div className="brand-mark" aria-hidden="true">H+</div>
+          <div className="brand-text">
+            <span className="brand-title">HSN+</span>
+            <span className="brand-tagline">Live Sports</span>
+          </div>
+        </button>
+
+        <nav className="nav-links" aria-label="Primary navigation">
+          {navItems.map((item) => (
+            <button
+              key={item.label}
+              className={`nav-link ${isActive(item.href) ? 'is-active' : ''}`}
+              onClick={() => router.push(item.href)}
+            >
+              {item.icon} {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <form className="search-shell" onSubmit={handleSearch} aria-label="Search matches">
+          <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            className="search-inline"
+            type="search"
+            placeholder="Search matches…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoComplete="off"
+          />
+        </form>
+
+        <button
+          className="mobile-menu-toggle"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+          aria-expanded={mobileOpen}
+        >
+          <span className="mobile-menu-bars" aria-hidden="true">
+            <span /><span /><span />
+          </span>
+        </button>
+      </header>
+
+      {/* Mobile nav drawer */}
+      <div className={`mobile-nav ${mobileOpen ? 'is-open' : ''}`} role="dialog" aria-modal="true">
+        <div className="mobile-nav-backdrop" onClick={() => setMobileOpen(false)} />
+        <aside className="mobile-nav-panel">
+          <button className="mobile-nav-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M2 2l12 12M14 2L2 14" />
+            </svg>
+          </button>
+          <div className="mobile-nav-brand">
+            <div className="brand-mark" aria-hidden="true">H+</div>
+            <div className="brand-text">
+              <span className="brand-title">HSN+</span>
+              <span className="brand-tagline">Live Sports</span>
+            </div>
+          </div>
+          <nav className="mobile-nav-links">
+            {navItems.map((item) => (
+              <button
+                key={item.label}
+                className={`mobile-nav-link ${isActive(item.href) ? 'is-active' : ''}`}
+                onClick={() => {
+                  router.push(item.href);
+                  setMobileOpen(false);
+                }}
+              >
+                <span>{item.icon}</span> {item.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+      </div>
+
+      {children}
+    </>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -19,17 +143,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={spaceGrotesk.variable}>
-        <header className="topbar">
-          <div className="topbar-inner shell">
-            <div className="brand">
-              <span className="brand-mark">HSN+</span>
-              <strong className="brand-title">HSN+ Feed</strong>
-            </div>
-          </div>
-        </header>
-
-        <div style={{ paddingTop: 72 }}>{children}</div>
+      <body className={outfit.variable}>
+        <Suspense fallback={null}>
+          <LayoutInner>{children}</LayoutInner>
+        </Suspense>
       </body>
     </html>
   );
