@@ -358,6 +358,45 @@ export default function MatchPage() {
 
   const heroTitle = useMemo(() => match?.title ?? 'Match', [match]);
 
+  // Countdown timer
+  const [countdown, setCountdown] = useState<string | null>(null);
+  useEffect(() => {
+    if (!match) return;
+    const matchTime = match.date;
+    const now = Date.now();
+    if (matchTime <= now) {
+      setCountdown(null);
+      return;
+    }
+    function updateCountdown() {
+      const diff = matchTime - Date.now();
+      if (diff <= 0) {
+        setCountdown(null);
+        return;
+      }
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) {
+        setCountdown(`${hours}h ${mins}m ${secs}s`);
+      } else {
+        setCountdown(`${mins}m ${secs}s`);
+      }
+    }
+    updateCountdown();
+    const id = setInterval(updateCountdown, 1000);
+    return () => clearInterval(id);
+  }, [match]);
+
+  // Generate fallback SVG for team badges
+  function teamBadgeFallback(name: string) {
+    const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+    const hash = [...name].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+    const hue = Math.abs(hash) % 360;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" rx="16" fill="hsl(${hue},40%,18%)"/><text x="40" y="48" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="800" fill="hsl(${hue},50%,70%)">${initials}</text></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+
   return (
     <main className="shell match-page-shell">
       {showDisclaimer ? (
@@ -404,10 +443,27 @@ export default function MatchPage() {
                 <p className="eyebrow">{match.displayTag}</p>
                 <h2>{match.title}</h2>
                 <p>{formatDate(match.date)}</p>
+                {countdown ? (
+                  <p style={{ color: 'var(--red)', fontWeight: 700, fontSize: '0.9rem', marginTop: 4 }}>
+                    Kickoff in {countdown}
+                  </p>
+                ) : null}
               </div>
               <div className="mini-badges">
-                {selectedBadgeHome ? <img src={selectedBadgeHome} alt="Home badge" /> : null}
-                {selectedBadgeAway ? <img src={selectedBadgeAway} alt="Away badge" /> : null}
+                {selectedBadgeHome ? (
+                  <img
+                    src={selectedBadgeHome}
+                    alt="Home badge"
+                    onError={(e) => { (e.target as HTMLImageElement).src = teamBadgeFallback(match?.teams?.home?.name ?? 'Home'); }}
+                  />
+                ) : null}
+                {selectedBadgeAway ? (
+                  <img
+                    src={selectedBadgeAway}
+                    alt="Away badge"
+                    onError={(e) => { (e.target as HTMLImageElement).src = teamBadgeFallback(match?.teams?.away?.name ?? 'Away'); }}
+                  />
+                ) : null}
               </div>
             </div>
 

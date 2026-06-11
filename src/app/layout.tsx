@@ -45,9 +45,16 @@ function LayoutInner({
 
   return (
     <>
-      {/* Ambient glows */}
-      <div className="ambient ambient-left" aria-hidden="true" />
-      <div className="ambient ambient-right" aria-hidden="true" />
+      {/* Pure CSS Loading Screen — fades out via animation, no JS needed */}
+      <div className="app-loading" aria-hidden="false">
+        <div className="app-loading-inner">
+          <div className="app-loading-mark">H+</div>
+          <div className="app-loading-name">HSN+</div>
+          <div className="app-loading-tagline">Live Sports</div>
+          <div className="app-loading-bar"><span /></div>
+          <div className="app-loading-text">Loading…</div>
+        </div>
+      </div>
 
       {/* Glass Topbar */}
       <header className="topbar" role="banner">
@@ -143,6 +150,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <meta name="theme-color" content="#e01020" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="HSN+" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+      </head>
       <body className={outfit.variable}>
         <Suspense fallback={null}>
           <LayoutInner>{children}</LayoutInner>

@@ -56,6 +56,97 @@
   --fast:   cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
+/* ─── Loading Screen (pure CSS, auto-fades) ────────────── */
+@keyframes loadFadeOut {
+  0%   { opacity: 1; pointer-events: auto; }
+  80%  { opacity: 1; pointer-events: auto; }
+  100% { opacity: 0; pointer-events: none; visibility: hidden; }
+}
+
+@keyframes loadBarFill {
+  0%   { width: 0%; }
+  70%  { width: 90%; }
+  100% { width: 100%; }
+}
+
+.app-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: var(--bg-void);
+  animation: loadFadeOut 3s ease forwards;
+}
+
+.app-loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.app-loading-mark {
+  width: 80px;
+  height: 80px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, hsl(356,95%,60%), hsl(356,95%,38%));
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  box-shadow: 0 8px 32px var(--red-glow);
+  animation: loadingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.85; }
+}
+
+.app-loading-name {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.app-loading-tagline {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--red);
+}
+
+.app-loading-bar {
+  width: 200px;
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.app-loading-bar span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--red), hsl(356,95%,70%));
+  border-radius: 999px;
+  animation: loadBarFill 2.8s ease forwards;
+}
+
+.app-loading-text {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-weight: 500;
+  min-height: 1.2em;
+}
+
 /* ─── Reset ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -77,27 +168,6 @@ body {
 
 button { font-family: inherit; cursor: pointer; }
 img    { display: block; max-width: 100%; }
-
-/* ─── Ambient Glows ──────────────────────────────────────── */
-.ambient {
-  position: fixed;
-  pointer-events: none;
-  border-radius: 50%;
-  filter: blur(130px);
-  z-index: 0;
-}
-.ambient-left {
-  width: 680px; height: 680px;
-  top: -200px; left: -220px;
-  background: radial-gradient(circle, var(--red) 0%, transparent 68%);
-  opacity: 0.14;
-}
-.ambient-right {
-  width: 560px; height: 560px;
-  bottom: -180px; right: -160px;
-  background: radial-gradient(circle, var(--blue) 0%, transparent 68%);
-  opacity: 0.10;
-}
 
 /* ─── Shell ──────────────────────────────────────────────── */
 .shell {

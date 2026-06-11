@@ -33,6 +33,47 @@ type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming';
 
 const SKELETON_COUNT = 6;
 
+/* Generate a gradient SVG match card when images fail to load */
+function generateMatchImage(homeName: string, awayName: string, title: string) {
+  const initials = (name: string) => {
+    const words = name.trim().split(/\s+/);
+    return words.length >= 2
+      ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
+      : name.slice(0, 2).toUpperCase();
+  };
+  const homeInit = homeName ? initials(homeName) : '?';
+  const awayInit = awayName ? initials(awayName) : '?';
+
+  // Deterministic gradient based on team names
+  const hash = (s: string) => [...s].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+  const h1 = Math.abs(hash(homeName || title)) % 40 + 200;
+  const h2 = Math.abs(hash(awayName || title)) % 40 + 340;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="hsl(${h1},40%,8%)"/>
+      <stop offset="100%" stop-color="hsl(${h2},35%,12%)"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%">
+      <stop offset="0%" stop-color="hsl(356,95%,52%)" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <rect width="640" height="360" fill="url(#glow)"/>
+  <text x="200" y="170" text-anchor="middle" font-family="Outfit,sans-serif" font-size="64" font-weight="800" fill="rgba(255,255,255,0.9)">${homeInit}</text>
+  <text x="320" y="165" text-anchor="middle" font-family="Outfit,sans-serif" font-size="28" font-weight="700" fill="hsl(356,95%,52%)">VS</text>
+  <text x="440" y="170" text-anchor="middle" font-family="Outfit,sans-serif" font-size="64" font-weight="800" fill="rgba(255,255,255,0.9)">${awayInit}</text>
+  <text x="200" y="220" text-anchor="middle" font-family="Outfit,sans-serif" font-size="16" font-weight="500" fill="rgba(255,255,255,0.5)">${homeName || 'TBD'}</text>
+  <text x="440" y="220" text-anchor="middle" font-family="Outfit,sans-serif" font-size="16" font-weight="500" fill="rgba(255,255,255,0.5)">${awayName || 'TBD'}</text>
+  <line x1="260" y1="130" x2="260" y2="210" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+  <line x1="380" y1="130" x2="380" y2="210" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+</svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -310,6 +351,10 @@ function HomeContent() {
               const isScoreLive = linkedScore ? isLigaMatchLive(linkedScore) : false;
               const isScoreFinished = linkedScore ? isLigaMatchFinished(linkedScore) : false;
 
+              const homeName = match.teams?.home?.name ?? '';
+              const awayName = match.teams?.away?.name ?? '';
+              const fallbackSrc = generateMatchImage(homeName, awayName, match.title);
+
               return (
                 <button
                   key={match.id}
@@ -321,19 +366,24 @@ function HomeContent() {
                 >
                   <div className="match-visual">
                     {poster ? (
-                      <img src={poster} alt={match.title} loading="lazy" />
+                      <img
+                        src={poster}
+                        alt={match.title}
+                        loading="lazy"
+                        onError={(e) => { (e.target as HTMLImageElement).src = fallbackSrc; }}
+                      />
                     ) : homeBadge && awayBadge ? (
-                      <div className="badge-row">
-                        <img src={homeBadge} alt={match.teams?.home?.name ?? 'Home'} />
-                        <span>VS</span>
-                        <img src={awayBadge} alt={match.teams?.away?.name ?? 'Away'} />
-                      </div>
+                      <img
+                        src={fallbackSrc}
+                        alt={match.title}
+                        loading="lazy"
+                      />
                     ) : (
-                      <div className="badge-row">
-                        {homeBadge ? <img src={homeBadge} alt={match.teams?.home?.name ?? 'Home'} /> : null}
-                        <span>VS</span>
-                        {awayBadge ? <img src={awayBadge} alt={match.teams?.away?.name ?? 'Away'} /> : null}
-                      </div>
+                      <img
+                        src={fallbackSrc}
+                        alt={match.title}
+                        loading="lazy"
+                      />
                     )}
 
                     <span className={`status-pill ${isLive ? 'live' : isScoreFinished ? 'finished' : ''}`}>
