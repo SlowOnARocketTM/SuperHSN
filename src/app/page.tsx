@@ -28,10 +28,47 @@ import {
 } from '@/lib/streamed';
 
 const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
+const PREDICTIONS_KEY = 'hsn-plus-predictions';
 
 type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming';
 
 const SKELETON_COUNT = 6;
+
+/* ── Predictions ─────────────────────────────────────── */
+type Prediction = { home: number; away: number; ts: number };
+
+function loadPredictions(): Record<string, Prediction> {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(PREDICTIONS_KEY) || '{}');
+  } catch { return {}; }
+}
+
+function savePrediction(matchId: string, home: number, away: number) {
+  const preds = loadPredictions();
+  preds[matchId] = { home, away, ts: Date.now() };
+  localStorage.setItem(PREDICTIONS_KEY, JSON.stringify(preds));
+}
+
+function getPrediction(matchId: string): Prediction | null {
+  return loadPredictions()[matchId] ?? null;
+}
+
+function getPredictionStats(predictions: Record<string, Prediction>, scoresMap: Map<string, LigaMatch>) {
+  let correct = 0;
+  let total = 0;
+  for (const [matchId, pred] of Object.entries(predictions)) {
+    const liga = scoresMap.get(matchId);
+    if (!liga || !isLigaMatchFinished(liga)) continue;
+    total++;
+    const actualHome = liga.matchResults?.[0]?.pointsTeam1 ?? liga.matchResults?.[1]?.pointsTeam1;
+    const actualAway = liga.matchResults?.[0]?.pointsTeam2 ?? liga.matchResults?.[1]?.pointsTeam2;
+    if (actualHome != null && actualAway != null) {
+      if (pred.home === actualHome && pred.away === actualAway) correct++;
+    }
+  }
+  return { correct, total, pct: total > 0 ? Math.round((correct / total) * 100) : 0 };
+}
 
 /* Generate a gradient SVG match card when images fail to load */
 function generateMatchImage(homeName: string, awayName: string, title: string) {
@@ -85,6 +122,16 @@ function HomeContent() {
   const [loadingScores, setLoadingScores] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  // Predictions
+  const [predictions, setPredictions] = useState<Record<string, Prediction>>({});
+  const [predModal, setPredModal] = useState<{ matchId: string; homeName: string; awayName: string } | null>(null);
+  const [predHome, setPredHome] = useState('0');
+  const [predAway, setPredAway] = useState('0');
+
+  useEffect(() => {
+    setPredictions(loadPredictions());
+  }, []);
 
   // Read filter from URL query param
   const activeFilter = useMemo<FilterKey>(() => {
@@ -250,6 +297,25 @@ function HomeContent() {
     router.push(qs ? `/?${qs}` : '/');
   }, [router]);
 
+  const predStats = useMemo(() => getPredictionStats(predictions, matchScoresMap), [predictions, matchScoresMap]);
+
+  function openPredModal(e: React.MouseEvent, matchId: string, homeName: string, awayName: string) {
+    e.stopPropagation();
+    const existing = predictions[matchId];
+    setPredHome(existing ? String(existing.home) : '0');
+    setPredAway(existing ? String(existing.away) : '0');
+    setPredModal({ matchId, homeName, awayName });
+  }
+
+  function submitPrediction() {
+    if (!predModal) return;
+    const h = parseInt(predHome, 10) || 0;
+    const a = parseInt(predAway, 10) || 0;
+    savePrediction(predModal.matchId, h, a);
+    setPredictions(loadPredictions());
+    setPredModal(null);
+  }
+
   return (
     <main className="shell">
       {showDisclaimer ? (
@@ -271,6 +337,49 @@ function HomeContent() {
             >
               I Understand
             </button>
+          </section>
+        </div>
+      ) : null}
+
+      {/* Prediction Modal */}
+      {predModal ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPredModal(null)}>
+          <section className="modal" role="dialog" onClick={(e) => e.stopPropagation()}>
+            <p className="eyebrow">Your Prediction</p>
+            <h1 style={{ fontSize: '1.3rem' }}>{predModal.homeName} vs {predModal.awayName}</h1>
+            <div className="pred-input-row">
+              <div className="pred-input-group">
+                <label>{predModal.homeName}</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="99"
+                  value={predHome}
+                  onChange={(e) => setPredHome(e.target.value)}
+                  className="pred-input"
+                />
+              </div>
+              <span className="pred-vs">—</span>
+              <div className="pred-input-group">
+                <label>{predModal.awayName}</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="99"
+                  value={predAway}
+                  onChange={(e) => setPredAway(e.target.value)}
+                  className="pred-input"
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>
+              <button type="button" className="ghost-button" onClick={() => setPredModal(null)}>
+                Cancel
+              </button>
+              <button type="button" className="primary-button" onClick={submitPrediction}>
+                Save Prediction
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
@@ -323,6 +432,24 @@ function HomeContent() {
             ))}
           </div>
 
+          {/* Prediction Stats */}
+          {predStats.total > 0 ? (
+            <div className="pred-stats-shelf">
+              <div className="pred-stat">
+                <span className="pred-stat-num">{predStats.total}</span>
+                <span className="pred-stat-label">Predicted</span>
+              </div>
+              <div className="pred-stat">
+                <span className="pred-stat-num">{predStats.correct}</span>
+                <span className="pred-stat-label">Correct</span>
+              </div>
+              <div className="pred-stat">
+                <span className="pred-stat-num pred-stat-pct">{predStats.pct}%</span>
+                <span className="pred-stat-label">Accuracy</span>
+              </div>
+            </div>
+          ) : null}
+
           {loadingFeed ? (
             <div className="match-list">
               {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
@@ -356,12 +483,16 @@ function HomeContent() {
               const fallbackSrc = generateMatchImage(homeName, awayName, match.title);
 
               return (
-                <button
+                <div
                   key={match.id}
-                  type="button"
                   className="match-card"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     router.push(`/match/${match.id}`);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') router.push(`/match/${match.id}`);
                   }}
                 >
                   <div className="match-visual">
@@ -410,8 +541,47 @@ function HomeContent() {
                         {match.teams?.away?.name ? <span>{match.teams.away.name}</span> : null}
                       </div>
                     ) : null}
+
+                    {/* Prediction display */}
+                    {predictions[match.id] && isScoreFinished ? (
+                      (() => {
+                        const pred = predictions[match.id];
+                        const liga = matchScoresMap.get(match.id);
+                        const actualH = liga?.matchResults?.[0]?.pointsTeam1 ?? liga?.matchResults?.[1]?.pointsTeam1;
+                        const actualA = liga?.matchResults?.[0]?.pointsTeam2 ?? liga?.matchResults?.[1]?.pointsTeam2;
+                        const correct = actualH != null && actualA != null && pred.home === actualH && pred.away === actualA;
+                        return (
+                          <div className="pred-result">
+                            <span className={correct ? 'pred-correct' : 'pred-wrong'}>
+                              {correct ? '✅ Correct!' : '❌ Wrong'}
+                            </span>
+                            <span className="pred-scores">
+                              Yours: {pred.home}-{pred.away}
+                              {actualH != null ? ` | Actual: ${actualH}-${actualA}` : ''}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    ) : predictions[match.id] ? (
+                      <div className="pred-badge">
+                        Your pick: {predictions[match.id].home}-{predictions[match.id].away}
+                      </div>
+                    ) : null}
                   </div>
-                </button>
+
+                  {/* Predict button */}
+                  {!isScoreFinished && !isLive ? (
+                    <div className="match-pred-footer" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="predict-btn"
+                        onClick={(e) => openPredModal(e, match.id, homeName, awayName)}
+                      >
+                        {predictions[match.id] ? '✏️ Change' : '🎯 Predict'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
 
