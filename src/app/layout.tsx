@@ -20,6 +20,41 @@ function LayoutInner({
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isIOS, setIsIOS] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [showInstallTip, setShowInstallTip] = useState(false);
+
+  useEffect(() => {
+    const ua = window.navigator.userAgent;
+    setIsIOS(/iPad|iPhone|iPod/.test(ua));
+
+    // Check if already installed (running in standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
+      setIsInstalled(true);
+    }
+
+    function handler(e: Event) {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    }
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (isIOS) {
+      setShowInstallTip(true);
+      return;
+    }
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    }
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +128,13 @@ function LayoutInner({
           />
         </form>
 
+        {!isInstalled && (deferredPrompt || isIOS) ? (
+          <button className="ghost-button install-btn" onClick={handleInstall} style={{ fontSize: '0.78rem', padding: '7px 14px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            Install
+          </button>
+        ) : null}
+
         <button
           className="mobile-menu-toggle"
           onClick={() => setMobileOpen(true)}
@@ -134,9 +176,34 @@ function LayoutInner({
                 <span>{item.icon}</span> {item.label}
               </button>
             ))}
+            {!isInstalled ? (
+              <button className="mobile-nav-link" onClick={() => { handleInstall(); setMobileOpen(false); }}>
+                <span>📲</span> Install App
+              </button>
+            ) : null}
           </nav>
         </aside>
       </div>
+
+      {/* iOS install tip overlay */}
+      {showInstallTip ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setShowInstallTip(false)}>
+          <section className="modal" role="dialog" onClick={(e) => e.stopPropagation()}>
+            <p className="eyebrow">Install HSN+</p>
+            <h1>Add to Home Screen</h1>
+            <p>
+              Tap the <strong>Share</strong> button (square with arrow) in Safari, then select
+              &nbsp;<strong>"Add to Home Screen"</strong>.
+            </p>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: 8 }}>
+              iOS does not support automatic PWA installation — this is the only way to install on iPhone/iPad.
+            </p>
+            <button type="button" className="primary-button" onClick={() => setShowInstallTip(false)} style={{ marginTop: 16 }}>
+              Got it
+            </button>
+          </section>
+        </div>
+      ) : null}
 
       {children}
     </>
