@@ -7,8 +7,19 @@ import './globals.css';
 
 const outfit = Outfit({
   subsets: ['latin'],
-  variable: '--font-outfit'
+  variable: '--font-outfit',
 });
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+declare global {
+  interface WindowEventMap {
+    beforeinstallprompt: BeforeInstallPromptEvent;
+  }
+}
 
 function LayoutInner({
   children,
@@ -20,7 +31,7 @@ function LayoutInner({
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isIOS, setIsIOS] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [showInstallTip, setShowInstallTip] = useState(false);
@@ -30,11 +41,14 @@ function LayoutInner({
     setIsIOS(/iPad|iPhone|iPod/.test(ua));
 
     // Check if already installed (running in standalone mode)
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
+    if (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ('standalone' in window.navigator && (window.navigator as Navigator & { standalone?: boolean }).standalone)
+    ) {
       setIsInstalled(true);
     }
 
-    function handler(e: Event) {
+    function handler(e: BeforeInstallPromptEvent) {
       e.preventDefault();
       setDeferredPrompt(e);
     }
@@ -65,8 +79,10 @@ function LayoutInner({
 
   const navItems = [
     { label: 'Home', href: '/', icon: '⌂' },
-    { label: 'Football', href: '/?filter=football', icon: '⚽' },
+    { label: 'Football', href: '/?filter=soccer', icon: '⚽' },
     { label: 'Formula 1', href: '/?filter=formula1', icon: '🏎' },
+    { label: 'Schedule', href: '/schedule', icon: '📅' },
+    { label: 'Standings', href: '/standings', icon: '🏆' },
   ];
 
   const isActive = (href: string) => {
@@ -86,7 +102,9 @@ function LayoutInner({
           <div className="app-loading-mark">H+</div>
           <div className="app-loading-name">HSN+</div>
           <div className="app-loading-tagline">Live Sports</div>
-          <div className="app-loading-bar"><span /></div>
+          <div className="app-loading-bar">
+            <span />
+          </div>
           <div className="app-loading-text">Loading…</div>
         </div>
       </div>
@@ -94,7 +112,9 @@ function LayoutInner({
       {/* Glass Topbar */}
       <header className="topbar" role="banner">
         <button className="brand-block" onClick={() => router.push('/')} aria-label="HSN+ home">
-          <div className="brand-mark" aria-hidden="true">H+</div>
+          <div className="brand-mark" aria-hidden="true">
+            H+
+          </div>
           <div className="brand-text">
             <span className="brand-title">HSN+</span>
             <span className="brand-tagline">Live Sports</span>
@@ -114,7 +134,15 @@ function LayoutInner({
         </nav>
 
         <form className="search-shell" onSubmit={handleSearch} aria-label="Search matches">
-          <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <svg
+            className="search-icon"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
           </svg>
@@ -129,8 +157,21 @@ function LayoutInner({
         </form>
 
         {!isInstalled && (deferredPrompt || isIOS) ? (
-          <button className="ghost-button install-btn" onClick={handleInstall} style={{ fontSize: '0.78rem', padding: '7px 14px' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          <button
+            className="ghost-button install-btn"
+            onClick={handleInstall}
+            style={{ fontSize: '0.78rem', padding: '7px 14px' }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <path d="M12 5v14M5 12l7 7 7-7" />
+            </svg>
             Install
           </button>
         ) : null}
@@ -142,7 +183,9 @@ function LayoutInner({
           aria-expanded={mobileOpen}
         >
           <span className="mobile-menu-bars" aria-hidden="true">
-            <span /><span /><span />
+            <span />
+            <span />
+            <span />
           </span>
         </button>
       </header>
@@ -151,13 +194,26 @@ function LayoutInner({
       <div className={`mobile-nav ${mobileOpen ? 'is-open' : ''}`} role="dialog" aria-modal="true">
         <div className="mobile-nav-backdrop" onClick={() => setMobileOpen(false)} />
         <aside className="mobile-nav-panel">
-          <button className="mobile-nav-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <button
+            className="mobile-nav-close"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
               <path d="M2 2l12 12M14 2L2 14" />
             </svg>
           </button>
           <div className="mobile-nav-brand">
-            <div className="brand-mark" aria-hidden="true">H+</div>
+            <div className="brand-mark" aria-hidden="true">
+              H+
+            </div>
             <div className="brand-text">
               <span className="brand-title">HSN+</span>
               <span className="brand-tagline">Live Sports</span>
@@ -177,7 +233,13 @@ function LayoutInner({
               </button>
             ))}
             {!isInstalled ? (
-              <button className="mobile-nav-link" onClick={() => { handleInstall(); setMobileOpen(false); }}>
+              <button
+                className="mobile-nav-link"
+                onClick={() => {
+                  handleInstall();
+                  setMobileOpen(false);
+                }}
+              >
                 <span>📲</span> Install App
               </button>
             ) : null}
@@ -187,7 +249,11 @@ function LayoutInner({
 
       {/* iOS install tip overlay */}
       {showInstallTip ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setShowInstallTip(false)}>
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setShowInstallTip(false)}
+        >
           <section className="modal" role="dialog" onClick={(e) => e.stopPropagation()}>
             <p className="eyebrow">Install HSN+</p>
             <h1>Add to Home Screen</h1>
@@ -196,9 +262,15 @@ function LayoutInner({
               &nbsp;<strong>"Add to Home Screen"</strong>.
             </p>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: 8 }}>
-              iOS does not support automatic PWA installation — this is the only way to install on iPhone/iPad.
+              iOS does not support automatic PWA installation — this is the only way to install on
+              iPhone/iPad.
             </p>
-            <button type="button" className="primary-button" onClick={() => setShowInstallTip(false)} style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setShowInstallTip(false)}
+              style={{ marginTop: 16 }}
+            >
               Got it
             </button>
           </section>
@@ -216,7 +288,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <head>
         <meta name="theme-color" content="#e01020" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

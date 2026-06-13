@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 
 import {
   API_BASE,
@@ -19,13 +19,10 @@ import {
   LigaMatch,
   fetchLigaMatches,
   getLigaScoreDisplay,
-  getLigaScore,
   isLigaMatchLive,
   isLigaMatchFinished,
   fuzzyTeamMatch,
-  LIGA_BL,
-  LIGA_BL2,
-  LIGA_DFB
+  LIGA_LEAGUES,
 } from '@/lib/streamed';
 
 const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
@@ -48,17 +45,61 @@ type F1Position = {
 
 const TEAM_COLOURS: Record<string, string> = {
   'Red Bull Racing': '#3671C6',
-  'Mercedes': '#27F4D2',
-  'Ferrari': '#E8002D',
-  'McLaren': '#FF8000',
+  Mercedes: '#27F4D2',
+  Ferrari: '#E8002D',
+  McLaren: '#FF8000',
   'Aston Martin': '#229971',
-  'Alpine': '#0093CC',
-  'Williams': '#64C4FF',
-  'RB': '#6692FF',
-  'Sauber': '#52E252',
+  Alpine: '#0093CC',
+  Williams: '#64C4FF',
+  RB: '#6692FF',
+  Sauber: '#52E252',
   'Haas F1 Team': '#B6BABD',
   'Kick Sauber': '#52E252',
 };
+
+/* ── Stream Voting (localStorage) ──────────────────────── */
+const STREAM_VOTES_KEY = 'hsn-plus-stream-votes';
+
+type StreamVotes = Record<string, { up: boolean; down: boolean }>;
+
+function loadStreamVotes(): StreamVotes {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(STREAM_VOTES_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveStreamVotes(votes: StreamVotes) {
+  localStorage.setItem(STREAM_VOTES_KEY, JSON.stringify(votes));
+}
+
+function getVoteScore(streamId: string, votes: StreamVotes): number {
+  const v = votes[streamId];
+  if (!v) return 0;
+  return (v.up ? 1 : 0) - (v.down ? 1 : 0);
+}
+
+function toggleStreamVote(
+  streamId: string,
+  voteType: 'up' | 'down',
+  votes: StreamVotes
+): StreamVotes {
+  const current = votes[streamId] ?? { up: false, down: false };
+
+  if (voteType === 'up') {
+    current.up = !current.up;
+    if (current.up) current.down = false;
+  } else {
+    current.down = !current.down;
+    if (current.down) current.up = false;
+  }
+
+  const next = { ...votes, [streamId]: current };
+  saveStreamVotes(next);
+  return next;
+}
 
 const OPENF1_BASE = 'https://api.openf1.org/v1';
 
@@ -123,7 +164,6 @@ export default function MatchPage() {
   const params = useParams<{ id: string }>();
   const matchId = Array.isArray(params?.id) ? params.id[0] : params?.id;
 
-  const [sports, setSports] = useState<Sport[]>([]);
   const [match, setMatch] = useState<PageMatch | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [activeStream, setActiveStream] = useState<Stream | null>(null);
@@ -131,6 +171,7 @@ export default function MatchPage() {
   const [loadingStreams, setLoadingStreams] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [streamVotes, setStreamVotes] = useState<StreamVotes>(loadStreamVotes);
 
   // LigaDB scores
   const [ligaMatches, setLigaMatches] = useState<LigaMatch[]>([]);
@@ -163,13 +204,13 @@ export default function MatchPage() {
         const [sportsResponse, allMatches, liveMatches] = await Promise.all([
           fetchJson<Sport[]>(`${API_BASE}/sports`, controller.signal),
           fetchJson<Match[]>(`${API_BASE}/matches/all`, controller.signal),
-          fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal)
+          fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal),
         ]);
 
-        const footballSportIds = sportsResponse
-          .filter(isFootballSport)
+        const footballSportIds = sportsResponse.filter(isFootballSport).map((sport) => sport.id);
+        const formulaOneSportIds = sportsResponse
+          .filter(isFormulaOneSport)
           .map((sport) => sport.id);
-        const formulaOneSportIds = sportsResponse.filter(isFormulaOneSport).map((sport) => sport.id);
         const allowedSportIds = new Set([...footballSportIds, ...formulaOneSportIds]);
 
         const curatedMatches = allMatches
@@ -188,8 +229,6 @@ export default function MatchPage() {
             return left.date - right.date;
           });
 
-        setSports(sportsResponse);
-
         const selectedMatch = curatedMatches.find((item) => item.id === matchId) ?? null;
 
         if (!selectedMatch) {
@@ -200,7 +239,7 @@ export default function MatchPage() {
 
         setMatch({
           ...selectedMatch,
-          displayTag: getDisplayTag(selectedMatch)
+          displayTag: getDisplayTag(selectedMatch),
         });
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name !== 'AbortError') {
@@ -250,6 +289,9 @@ export default function MatchPage() {
           throw new Error('No stream sources available.');
         }
 
+        // Sort by vote score (highest first)
+        allStreams.sort((a, b) => getVoteScore(b.id, streamVotes) - getVoteScore(a.id, streamVotes));
+
         setStreams(allStreams);
         setActiveStream(allStreams[0] ?? null);
       } catch (requestError) {
@@ -277,7 +319,7 @@ export default function MatchPage() {
     async function loadScores() {
       try {
         setLoadingScores(true);
-        const leagues = [LIGA_BL, LIGA_BL2, LIGA_DFB];
+        const leagues = LIGA_LEAGUES;
         const results = await Promise.allSettled(
           leagues.map((league) => fetchLigaMatches(league, undefined, controller.signal))
         );
@@ -326,7 +368,7 @@ export default function MatchPage() {
         setLoadingF1(true);
         const [positions, drivers] = await Promise.all([
           fetchF1Positions('latest'),
-          fetchF1Drivers('latest')
+          fetchF1Drivers('latest'),
         ]);
         if (!controller.signal.aborted) {
           setF1Positions(positions);
@@ -390,7 +432,14 @@ export default function MatchPage() {
 
   // Generate fallback SVG for team badges
   function teamBadgeFallback(name: string) {
-    const initials = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+    const initials =
+      name
+        .trim()
+        .split(/\s+/)
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2) || '?';
     const hash = [...name].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
     const hue = Math.abs(hash) % 360;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" rx="16" fill="hsl(${hue},40%,18%)"/><text x="40" y="48" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="800" fill="hsl(${hue},50%,70%)">${initials}</text></svg>`;
@@ -401,12 +450,17 @@ export default function MatchPage() {
     <main className="shell match-page-shell">
       {showDisclaimer ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="disclaimer-title"
+          >
             <p className="eyebrow">Important</p>
             <h1 id="disclaimer-title">HSN+ does not host streams</h1>
             <p>
-              HSN+ only displays match information and external embeds from the API provider. Any playback
-              happens on the external source, not on this site.
+              HSN+ only displays match information and external embeds from the API provider. Any
+              playback happens on the external source, not on this site.
             </p>
             <button
               type="button"
@@ -444,7 +498,14 @@ export default function MatchPage() {
                 <h2>{match.title}</h2>
                 <p>{formatDate(match.date)}</p>
                 {countdown ? (
-                  <p style={{ color: 'var(--red)', fontWeight: 700, fontSize: '0.9rem', marginTop: 4 }}>
+                  <p
+                    style={{
+                      color: 'var(--red)',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      marginTop: 4,
+                    }}
+                  >
                     Kickoff in {countdown}
                   </p>
                 ) : null}
@@ -454,25 +515,37 @@ export default function MatchPage() {
                   <img
                     src={selectedBadgeHome}
                     alt="Home badge"
-                    onError={(e) => { (e.target as HTMLImageElement).src = teamBadgeFallback(match?.teams?.home?.name ?? 'Home'); }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = teamBadgeFallback(
+                        match?.teams?.home?.name ?? 'Home'
+                      );
+                    }}
                   />
                 ) : null}
                 {selectedBadgeAway ? (
                   <img
                     src={selectedBadgeAway}
                     alt="Away badge"
-                    onError={(e) => { (e.target as HTMLImageElement).src = teamBadgeFallback(match?.teams?.away?.name ?? 'Away'); }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = teamBadgeFallback(
+                        match?.teams?.away?.name ?? 'Away'
+                      );
+                    }}
                   />
                 ) : null}
               </div>
             </div>
 
             <div className="match-player-shell">
-              {selectedPoster ? <img className="player-poster" src={selectedPoster} alt={match.title} /> : null}
+              {selectedPoster ? (
+                <img className="player-poster" src={selectedPoster} alt={match.title} />
+              ) : null}
 
               <div className="iframe-shell">
                 {loadingStreams ? <div className="empty-card inset">Loading embed.</div> : null}
-                {!loadingStreams && !activeStream ? <div className="empty-card inset">No stream source available.</div> : null}
+                {!loadingStreams && !activeStream ? (
+                  <div className="empty-card inset">No stream source available.</div>
+                ) : null}
                 {activeStream ? (
                   <iframe
                     title={match.title}
@@ -486,17 +559,69 @@ export default function MatchPage() {
               {/* ALL stream sources shown as selectable cards */}
               {streams.length > 0 ? (
                 <div className="stream-pills" aria-label="Available streams">
-                  {streams.map((stream) => (
-                    <button
-                      key={`${stream.source}-${stream.streamNo}-${stream.language}-${stream.id}`}
-                      type="button"
-                      className={activeStream?.id === stream.id ? 'stream-pill is-active' : 'stream-pill'}
-                      onClick={() => setActiveStream(stream)}
-                    >
-                      <span>{stream.language} {stream.hd ? 'HD' : 'SD'}</span>
-                      <small>{stream.source}</small>
-                    </button>
-                  ))}
+                  {streams.map((stream) => {
+                    const score = getVoteScore(stream.id, streamVotes);
+                    const userVote = streamVotes[stream.id];
+
+                    return (
+                      <div
+                        key={`${stream.source}-${stream.streamNo}-${stream.language}-${stream.id}`}
+                        className={`stream-pill-wrapper${
+                          activeStream?.id === stream.id ? ' is-active' : ''
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="stream-pill-main"
+                          onClick={() => setActiveStream(stream)}
+                        >
+                          <span>
+                            {stream.language} {stream.hd ? 'HD' : 'SD'}
+                          </span>
+                          <small>{stream.source}</small>
+                        </button>
+                        <div className="stream-votes">
+                          <button
+                            type="button"
+                            className={`stream-vote-btn up${userVote?.up ? ' voted' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = toggleStreamVote(stream.id, 'up', streamVotes);
+                              setStreamVotes(next);
+                              setStreams((prev) =>
+                                [...prev].sort(
+                                  (a, b) =>
+                                    getVoteScore(b.id, next) - getVoteScore(a.id, next)
+                                )
+                              );
+                            }}
+                            aria-label="Upvote"
+                          >
+                            ▲
+                          </button>
+                          <span className="stream-score">{score}</span>
+                          <button
+                            type="button"
+                            className={`stream-vote-btn down${userVote?.down ? ' voted' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = toggleStreamVote(stream.id, 'down', streamVotes);
+                              setStreamVotes(next);
+                              setStreams((prev) =>
+                                [...prev].sort(
+                                  (a, b) =>
+                                    getVoteScore(b.id, next) - getVoteScore(a.id, next)
+                                )
+                              );
+                            }}
+                            aria-label="Downvote"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -514,7 +639,9 @@ export default function MatchPage() {
                     <div key={liga.matchID} className="liga-match-row">
                       <span className="liga-team-name">{liga.team1.teamName}</span>
                       {scoreDisplay ? (
-                        <span className={`liga-score ${scoreLive ? 'live' : ''}`}>{scoreDisplay}</span>
+                        <span className={`liga-score ${scoreLive ? 'live' : ''}`}>
+                          {scoreDisplay}
+                        </span>
                       ) : (
                         <span className="liga-score">— : —</span>
                       )}
@@ -551,9 +678,7 @@ export default function MatchPage() {
 
             <p className="match-side-note">
               <strong>Stream options:</strong> {streams.length}
-              {streams.length > 0 && (
-                <> — pick your preferred source above</>
-              )}
+              {streams.length > 0 && <> — pick your preferred source above</>}
             </p>
 
             <p className="match-side-note">
@@ -572,16 +697,14 @@ export default function MatchPage() {
                 ) : f1Positions.length > 0 ? (
                   <div>
                     {f1Positions.slice(0, 20).map((pos) => {
-                      const driver = f1Drivers.find(d => d.driver_number === pos.driver_number);
+                      const driver = f1Drivers.find((d) => d.driver_number === pos.driver_number);
                       const teamColour = driver?.team_colour
                         ? `#${driver.team_colour}`
-                        : TEAM_COLOURS[driver?.team_name ?? ''] ?? 'var(--text-dim)';
+                        : (TEAM_COLOURS[driver?.team_name ?? ''] ?? 'var(--text-dim)');
                       const posClass = pos.position <= 3 ? `p${pos.position}` : '';
                       return (
                         <div key={pos.driver_number} className="f1-position">
-                          <span className={`f1-pos-num ${posClass}`}>
-                            {pos.position}
-                          </span>
+                          <span className={`f1-pos-num ${posClass}`}>{pos.position}</span>
                           <span
                             style={{
                               width: 3,
@@ -599,16 +722,16 @@ export default function MatchPage() {
                               <div className="f1-driver-team">{driver.team_name}</div>
                             ) : null}
                           </div>
-                          <span className="f1-gap">
-                            {pos.position === 1 ? 'LEADER' : ''}
-                          </span>
+                          <span className="f1-gap">{pos.position === 1 ? 'LEADER' : ''}</span>
                         </div>
                       );
                     })}
                   </div>
                 ) : (
                   <div className="f1-loading">
-                    {loadingF1 ? 'Connecting to live timing…' : 'No live F1 session data available.'}
+                    {loadingF1
+                      ? 'Connecting to live timing…'
+                      : 'No live F1 session data available.'}
                   </div>
                 )}
               </div>

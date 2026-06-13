@@ -44,7 +44,7 @@ export function formatDate(timestamp: number) {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
   }).format(new Date(timestamp));
 }
 
@@ -84,12 +84,18 @@ export async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T
 
 export function isFootballSport(sport: Sport) {
   const value = `${sport.id} ${sport.name}`.toLowerCase();
-  return value.includes('football') || value.includes('soccer');
+  // Exclude American football (NFL) — only soccer/real football
+  return (value.includes('football') || value.includes('soccer')) && !value.includes('nfl');
 }
 
 export function isFormulaOneSport(sport: Sport) {
   const value = `${sport.id} ${sport.name}`.toLowerCase();
-  return value.includes('formula 1') || value.includes('formula1') || value === 'f1' || value.includes(' f1 ');
+  return (
+    value.includes('formula 1') ||
+    value.includes('formula1') ||
+    value === 'f1' ||
+    value.includes(' f1 ')
+  );
 }
 
 export function looksLikeFormulaOneMatch(match: Match) {
@@ -97,7 +103,14 @@ export function looksLikeFormulaOneMatch(match: Match) {
 }
 
 export function isRealFootballMatch(match: Match) {
-  const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
+  const combined =
+    `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
+  if (
+    combined.includes('nfl') ||
+    combined.includes('american football') ||
+    combined.includes('super bowl')
+  )
+    return false;
   return (
     combined.includes('football') ||
     combined.includes('soccer') ||
@@ -134,11 +147,15 @@ export type LigaTeam = {
   teamIconUrl?: string;
 };
 
-// Common German leagues — good proxy for football scores
+// Leagues available via OpenLigaDB
 export const LIGA_BL = 'bl1';    // Bundesliga 1
 export const LIGA_BL2 = 'bl2';   // Bundesliga 2
+export const LIGA_BL3 = 'bl3';   // 3. Liga
 export const LIGA_DFB = 'dfb';   // DFB Pokal
-export const LIGA_CL = 'cl';     // Champions League (if available)
+export const LIGA_UCL = 'ucl';   // Champions League
+export const LIGA_UEL = 'uel';   // Europa League
+
+export const LIGA_LEAGUES = [LIGA_BL, LIGA_BL2, LIGA_BL3, LIGA_DFB, LIGA_UCL, LIGA_UEL];
 
 export async function fetchLigaMatches(
   league: string,
@@ -153,13 +170,13 @@ export async function fetchLigaMatches(
 }
 
 export function getLigaScore(match: LigaMatch, side: 1 | 2): number | null {
-  const result = match.matchResults.find(r => r.resultTypeID === 2); // final score
+  const result = match.matchResults.find((r) => r.resultTypeID === 2); // final score
   if (!result) return null;
   return side === 1 ? result.pointsTeam1 : result.pointsTeam2;
 }
 
 export function getLigaScoreDisplay(match: LigaMatch): string | null {
-  const result = match.matchResults.find(r => r.resultTypeID === 2);
+  const result = match.matchResults.find((r) => r.resultTypeID === 2);
   if (!result) return null;
   return `${result.pointsTeam1} : ${result.pointsTeam2}`;
 }
@@ -172,11 +189,62 @@ export function isLigaMatchFinished(match: LigaMatch): boolean {
   return match.matchStatus.matchStatusID === 5; // statusID 5 = finished
 }
 
+/* ── SportSRC Standings (free, no key needed) ────────────── */
+
+const SPORTSRC_BASE = 'https://api.sportsrc.org';
+
+export type StandingTeam = {
+  position: number;
+  team: { id: number; name: string; shortName: string; tla: string; crest: string };
+  playedGames: number;
+  won: number;
+  draw: number;
+  lost: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+};
+
+export type LeagueStandings = {
+  name: string;
+  code: string;
+  emblem: string;
+  season: { startDate: string; endDate: string; currentMatchday: number };
+  table: StandingTeam[];
+};
+
+export const STANDINGS_LEAGUES = [
+  { code: 'PL', name: 'Premier League' },
+  { code: 'BL1', name: 'Bundesliga' },
+  { code: 'SA', name: 'Serie A' },
+  { code: 'PD', name: 'La Liga' },
+] as const;
+
+export async function fetchStandings(league: string): Promise<LeagueStandings | null> {
+  try {
+    const response = await fetch(
+      `${SPORTSRC_BASE}/?data=results&category=tables&league=${league}`
+    );
+    if (!response.ok) return null;
+    const json = await response.json();
+    if (!json?.success || !json?.data?.standings?.[0]?.table) return null;
+    const comp = json.data.competition;
+    const season = json.data.season;
+    return {
+      name: comp.name,
+      code: comp.code,
+      emblem: comp.emblem,
+      season,
+      table: json.data.standings[0].table,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Simple fuzzy match to link streamed matches with live scores
-export function fuzzyTeamMatch(
-  leagueName: string,
-  apiName: string
-): boolean {
+export function fuzzyTeamMatch(leagueName: string, apiName: string): boolean {
   const a = leagueName.toLowerCase().replace(/[^a-z0-9]/g, '');
   const b = apiName.toLowerCase().replace(/[^a-z0-9]/g, '');
   return a.includes(b) || b.includes(a);

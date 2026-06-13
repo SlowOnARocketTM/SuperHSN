@@ -22,15 +22,14 @@ import {
   isLigaMatchLive,
   isLigaMatchFinished,
   fuzzyTeamMatch,
-  LIGA_BL,
-  LIGA_BL2,
-  LIGA_DFB
+  LIGA_LEAGUES,
 } from '@/lib/streamed';
 
 const DISCLAIMER_KEY = 'hsn-plus-disclaimer-acknowledged';
 const PREDICTIONS_KEY = 'hsn-plus-predictions';
+const FAVORITE_TEAMS_KEY = 'hsn-plus-favorite-teams';
 
-type FilterKey = 'all' | 'football' | 'formula1' | 'live' | 'upcoming';
+type FilterKey = 'all' | 'soccer' | 'formula1' | 'live' | 'upcoming';
 
 const SKELETON_COUNT = 6;
 
@@ -41,7 +40,9 @@ function loadPredictions(): Record<string, Prediction> {
   if (typeof window === 'undefined') return {};
   try {
     return JSON.parse(localStorage.getItem(PREDICTIONS_KEY) || '{}');
-  } catch { return {}; }
+  } catch {
+    return {};
+  }
 }
 
 function savePrediction(matchId: string, home: number, away: number) {
@@ -50,11 +51,10 @@ function savePrediction(matchId: string, home: number, away: number) {
   localStorage.setItem(PREDICTIONS_KEY, JSON.stringify(preds));
 }
 
-function getPrediction(matchId: string): Prediction | null {
-  return loadPredictions()[matchId] ?? null;
-}
-
-function getPredictionStats(predictions: Record<string, Prediction>, scoresMap: Map<string, LigaMatch>) {
+function getPredictionStats(
+  predictions: Record<string, Prediction>,
+  scoresMap: Map<string, LigaMatch>
+) {
   let correct = 0;
   let total = 0;
   for (const [matchId, pred] of Object.entries(predictions)) {
@@ -70,6 +70,16 @@ function getPredictionStats(predictions: Record<string, Prediction>, scoresMap: 
   return { correct, total, pct: total > 0 ? Math.round((correct / total) * 100) : 0 };
 }
 
+/* ── Favorite Teams ────────────────────────────────────── */
+function toggleFavorite(teamName: string, current: string[]): string[] {
+  const normalized = teamName.toLowerCase().trim();
+  const next = current.includes(normalized)
+    ? current.filter((t) => t !== normalized)
+    : [...current, normalized];
+  localStorage.setItem(FAVORITE_TEAMS_KEY, JSON.stringify(next));
+  return next;
+}
+
 /* Generate a gradient SVG match card when images fail to load */
 function generateMatchImage(homeName: string, awayName: string, title: string) {
   const initials = (name: string) => {
@@ -83,8 +93,8 @@ function generateMatchImage(homeName: string, awayName: string, title: string) {
 
   // Deterministic gradient based on team names
   const hash = (s: string) => [...s].reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
-  const h1 = Math.abs(hash(homeName || title)) % 40 + 200;
-  const h2 = Math.abs(hash(awayName || title)) % 40 + 340;
+  const h1 = (Math.abs(hash(homeName || title)) % 40) + 200;
+  const h2 = (Math.abs(hash(awayName || title)) % 40) + 340;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
   <defs>
@@ -122,10 +132,15 @@ function HomeContent() {
   const [loadingScores, setLoadingScores] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [favoriteTeams, setFavoriteTeams] = useState<string[]>([]);
 
   // Predictions
   const [predictions, setPredictions] = useState<Record<string, Prediction>>({});
-  const [predModal, setPredModal] = useState<{ matchId: string; homeName: string; awayName: string } | null>(null);
+  const [predModal, setPredModal] = useState<{
+    matchId: string;
+    homeName: string;
+    awayName: string;
+  } | null>(null);
   const [predHome, setPredHome] = useState('0');
   const [predAway, setPredAway] = useState('0');
 
@@ -133,10 +148,17 @@ function HomeContent() {
     setPredictions(loadPredictions());
   }, []);
 
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(FAVORITE_TEAMS_KEY) || '[]');
+      if (Array.isArray(stored)) setFavoriteTeams(stored);
+    } catch { /* ignore */ }
+  }, []);
+
   // Read filter from URL query param
   const activeFilter = useMemo<FilterKey>(() => {
     const filter = searchParams.get('filter') as FilterKey | null;
-    if (filter && ['all', 'football', 'formula1', 'live', 'upcoming'].includes(filter)) return filter;
+    if (filter && ['all', 'soccer', 'formula1', 'live', 'upcoming'].includes(filter)) return filter;
     return 'all';
   }, [searchParams]);
 
@@ -155,13 +177,13 @@ function HomeContent() {
         const [sportsResponse, allMatches, liveMatches] = await Promise.all([
           fetchJson<Sport[]>(`${API_BASE}/sports`, controller.signal),
           fetchJson<Match[]>(`${API_BASE}/matches/all`, controller.signal),
-          fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal)
+          fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal),
         ]);
 
-        const footballSportIds = sportsResponse
-          .filter(isFootballSport)
+        const footballSportIds = sportsResponse.filter(isFootballSport).map((sport) => sport.id);
+        const formulaOneSportIds = sportsResponse
+          .filter(isFormulaOneSport)
           .map((sport) => sport.id);
-        const formulaOneSportIds = sportsResponse.filter(isFormulaOneSport).map((sport) => sport.id);
         const allowedSportIds = new Set([...footballSportIds, ...formulaOneSportIds]);
         const liveIds = new Set(liveMatches.map((match) => match.id));
 
@@ -205,48 +227,55 @@ function HomeContent() {
     return () => controller.abort();
   }, []);
 
-  // Fetch live scores from OpenLigaDB
+  // Auto-refresh live matches and scores every 60s
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadScores() {
+    async function refreshData() {
       try {
         setLoadingScores(true);
-        const leagues = [LIGA_BL, LIGA_BL2, LIGA_DFB];
-        const results = await Promise.allSettled(
-          leagues.map((league) => fetchLigaMatches(league, undefined, controller.signal))
-        );
+        const [liveMatches, ...ligaResults] = await Promise.all([
+          fetchJson<Match[]>(`${API_BASE}/matches/live`, controller.signal),
+          ...(LIGA_LEAGUES.map((league) =>
+            fetchLigaMatches(league, undefined, controller.signal)
+          )),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        const newLiveIds = new Set(liveMatches.map((m) => m.id));
+        setLiveMatchIds([...newLiveIds]);
 
         const all: LigaMatch[] = [];
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            all.push(...result.value);
-          }
+        for (const result of ligaResults) {
+          all.push(...result);
         }
 
-        // Filter to only live/finished matches (skip far-future)
         const relevant = all.filter((m) => {
           const age = Date.now() - new Date(m.matchDateTime).getTime();
-          return age > -86400000; // within last 24h or upcoming
+          return age > -86400000;
         });
 
         setLigaMatches(relevant);
       } catch {
-        // scores are non-critical
+        // non-critical
       } finally {
         setLoadingScores(false);
       }
     }
 
-    loadScores();
-    return () => controller.abort();
+    const interval = setInterval(refreshData, 60000);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, []);
 
   const visibleMatches = useMemo(() => {
     const now = Date.now();
 
     return matches.filter((match) => {
-      if (activeFilter === 'football') {
+      if (activeFilter === 'soccer') {
         return isRealFootballMatch(match);
       }
 
@@ -265,6 +294,24 @@ function HomeContent() {
       return true;
     });
   }, [activeFilter, liveMatchIds, matches]);
+
+  // Pin favorited teams to the top
+  const sortedMatches = useMemo(() => {
+    return [...visibleMatches].sort((a, b) => {
+      const aFav = favoriteTeams.some((fav) =>
+        a.title.toLowerCase().includes(fav) ||
+        (a.teams?.home?.name && a.teams.home.name.toLowerCase().includes(fav)) ||
+        (a.teams?.away?.name && a.teams.away.name.toLowerCase().includes(fav))
+      );
+      const bFav = favoriteTeams.some((fav) =>
+        b.title.toLowerCase().includes(fav) ||
+        (b.teams?.home?.name && b.teams.home.name.toLowerCase().includes(fav)) ||
+        (b.teams?.away?.name && b.teams.away.name.toLowerCase().includes(fav))
+      );
+      if (aFav !== bFav) return aFav ? -1 : 1;
+      return 0;
+    });
+  }, [visibleMatches, favoriteTeams]);
 
   // Fuzzy-match live scores to streamed matches
   const matchScoresMap = useMemo(() => {
@@ -290,14 +337,20 @@ function HomeContent() {
     return map;
   }, [ligaMatches, matches]);
 
-  const handleFilterChange = useCallback((filter: FilterKey) => {
-    const params = new URLSearchParams();
-    if (filter !== 'all') params.set('filter', filter);
-    const qs = params.toString();
-    router.push(qs ? `/?${qs}` : '/');
-  }, [router]);
+  const handleFilterChange = useCallback(
+    (filter: FilterKey) => {
+      const params = new URLSearchParams();
+      if (filter !== 'all') params.set('filter', filter);
+      const qs = params.toString();
+      router.push(qs ? `/?${qs}` : '/');
+    },
+    [router]
+  );
 
-  const predStats = useMemo(() => getPredictionStats(predictions, matchScoresMap), [predictions, matchScoresMap]);
+  const predStats = useMemo(
+    () => getPredictionStats(predictions, matchScoresMap),
+    [predictions, matchScoresMap]
+  );
 
   function openPredModal(e: React.MouseEvent, matchId: string, homeName: string, awayName: string) {
     e.stopPropagation();
@@ -320,12 +373,17 @@ function HomeContent() {
     <main className="shell">
       {showDisclaimer ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="disclaimer-title"
+          >
             <p className="eyebrow">Important</p>
             <h1 id="disclaimer-title">HSN+ does not host streams</h1>
             <p>
-              HSN+ only displays match information and external embeds from the API provider. Any playback
-              happens on the external source, not on this site.
+              HSN+ only displays match information and external embeds from the API provider. Any
+              playback happens on the external source, not on this site.
             </p>
             <button
               type="button"
@@ -346,7 +404,9 @@ function HomeContent() {
         <div className="modal-backdrop" role="presentation" onClick={() => setPredModal(null)}>
           <section className="modal" role="dialog" onClick={(e) => e.stopPropagation()}>
             <p className="eyebrow">Your Prediction</p>
-            <h1 style={{ fontSize: '1.3rem' }}>{predModal.homeName} vs {predModal.awayName}</h1>
+            <h1 style={{ fontSize: '1.3rem' }}>
+              {predModal.homeName} vs {predModal.awayName}
+            </h1>
             <div className="pred-input-row">
               <div className="pred-input-group">
                 <label>{predModal.homeName}</label>
@@ -384,26 +444,6 @@ function HomeContent() {
         </div>
       ) : null}
 
-      {/* Hero Section */}
-      <section className="hero-card">
-        <div className="hero-brand-centered">
-          <div className="hero-logo">
-            <div className="brand-mark">H+</div>
-            <h1>HSN+</h1>
-          </div>
-          <p className="hero-subtitle">Football & Formula 1</p>
-          <div className="hero-note" aria-label="Feed summary">
-            <span>{sports.length || '—'} sports</span>
-            <span>{matches.length || '—'} matches</span>
-            {ligaMatches.filter((m) => isLigaMatchLive(m)).length > 0 && (
-              <span style={{ color: 'var(--red)', fontWeight: 700 }}>
-                {ligaMatches.filter((m) => isLigaMatchLive(m)).length} live
-              </span>
-            )}
-          </div>
-        </div>
-      </section>
-
       <section className="content-grid">
         <div className="feed-column">
           <div className="section-header">
@@ -416,10 +456,10 @@ function HomeContent() {
           <div className="filter-bar" role="tablist" aria-label="Match filters">
             {[
               ['all', 'All'],
-              ['football', '⚽ Football'],
+              ['soccer', '⚽ Football'],
               ['formula1', '🏎 Formula 1'],
               ['live', '🔴 Live'],
-              ['upcoming', '📅 Upcoming']
+              ['upcoming', '📅 Upcoming'],
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -468,7 +508,7 @@ function HomeContent() {
           {error ? <div className="error-card">{error}</div> : null}
 
           <div className="match-list">
-            {visibleMatches.map((match) => {
+            {sortedMatches.map((match) => {
               const poster = buildPosterUrl(match.poster);
               const homeBadge = buildBadgeUrl(match.teams?.home?.badge);
               const awayBadge = buildBadgeUrl(match.teams?.away?.badge);
@@ -481,6 +521,11 @@ function HomeContent() {
               const homeName = match.teams?.home?.name ?? '';
               const awayName = match.teams?.away?.name ?? '';
               const fallbackSrc = generateMatchImage(homeName, awayName, match.title);
+              const isFav = favoriteTeams.some((fav) =>
+                match.title.toLowerCase().includes(fav) ||
+                (homeName && homeName.toLowerCase().includes(fav)) ||
+                (awayName && awayName.toLowerCase().includes(fav))
+              );
 
               return (
                 <div
@@ -501,24 +546,26 @@ function HomeContent() {
                         src={poster}
                         alt={match.title}
                         loading="lazy"
-                        onError={(e) => { (e.target as HTMLImageElement).src = fallbackSrc; }}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = fallbackSrc;
+                        }}
                       />
                     ) : homeBadge && awayBadge ? (
-                      <img
-                        src={fallbackSrc}
-                        alt={match.title}
-                        loading="lazy"
-                      />
+                      <img src={fallbackSrc} alt={match.title} loading="lazy" />
                     ) : (
-                      <img
-                        src={fallbackSrc}
-                        alt={match.title}
-                        loading="lazy"
-                      />
+                      <img src={fallbackSrc} alt={match.title} loading="lazy" />
                     )}
 
-                    <span className={`status-pill ${isLive ? 'live' : isScoreFinished ? 'finished' : ''}`}>
-                      {isLive ? 'Live' : isScoreFinished ? 'Final' : match.popular ? 'Popular' : formatDateShort(match.date)}
+                    <span
+                      className={`status-pill ${isLive ? 'live' : isScoreFinished ? 'finished' : ''}`}
+                    >
+                      {isLive
+                        ? 'Live'
+                        : isScoreFinished
+                          ? 'Final'
+                          : match.popular
+                            ? 'Popular'
+                            : formatDateShort(match.date)}
                     </span>
 
                     {scoreDisplay ? (
@@ -526,6 +573,21 @@ function HomeContent() {
                         {scoreDisplay}
                       </span>
                     ) : null}
+
+                    <button
+                      type="button"
+                      className={`fav-btn${isFav ? ' is-fav' : ''}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const team = homeName || awayName || match.title;
+                        const next = toggleFavorite(team, favoriteTeams);
+                        setFavoriteTeams(next);
+                      }}
+                      aria-label={isFav ? 'Unfavorite' : 'Favorite'}
+                    >
+                      {isFav ? '★' : '☆'}
+                    </button>
                   </div>
 
                   <div className="match-copy">
@@ -547,9 +609,17 @@ function HomeContent() {
                       (() => {
                         const pred = predictions[match.id];
                         const liga = matchScoresMap.get(match.id);
-                        const actualH = liga?.matchResults?.[0]?.pointsTeam1 ?? liga?.matchResults?.[1]?.pointsTeam1;
-                        const actualA = liga?.matchResults?.[0]?.pointsTeam2 ?? liga?.matchResults?.[1]?.pointsTeam2;
-                        const correct = actualH != null && actualA != null && pred.home === actualH && pred.away === actualA;
+                        const actualH =
+                          liga?.matchResults?.[0]?.pointsTeam1 ??
+                          liga?.matchResults?.[1]?.pointsTeam1;
+                        const actualA =
+                          liga?.matchResults?.[0]?.pointsTeam2 ??
+                          liga?.matchResults?.[1]?.pointsTeam2;
+                        const correct =
+                          actualH != null &&
+                          actualA != null &&
+                          pred.home === actualH &&
+                          pred.away === actualA;
                         return (
                           <div className="pred-result">
                             <span className={correct ? 'pred-correct' : 'pred-wrong'}>
@@ -585,7 +655,9 @@ function HomeContent() {
               );
             })}
 
-            {!loadingFeed && visibleMatches.length === 0 ? <div className="empty-card">No matches available right now.</div> : null}
+            {!loadingFeed && visibleMatches.length === 0 ? (
+              <div className="empty-card">No matches available right now.</div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -595,7 +667,13 @@ function HomeContent() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<div className="shell"><div className="empty-card">Loading…</div></div>}>
+    <Suspense
+      fallback={
+        <div className="shell">
+          <div className="empty-card">Loading…</div>
+        </div>
+      }
+    >
       <HomeContent />
     </Suspense>
   );
