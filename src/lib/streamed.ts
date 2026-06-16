@@ -120,6 +120,26 @@ export function isRealFootballMatch(match: Match) {
   );
 }
 
+export function isAmericanFootballSport(sport: Sport) {
+  const value = `${sport.id} ${sport.name}`.toLowerCase();
+  return value.includes('american football') || (value.includes('football') && value.includes('nfl'));
+}
+
+export function isBasketballSport(sport: Sport) {
+  const value = `${sport.id} ${sport.name}`.toLowerCase();
+  return value.includes('basketball') || value.includes('nba');
+}
+
+export function looksLikeAmericanFootballMatch(match: Match) {
+  const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
+  return combined.includes('nfl') || combined.includes('american football') || combined.includes('super bowl');
+}
+
+export function looksLikeBasketballMatch(match: Match) {
+  const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
+  return combined.includes('basketball') || combined.includes('nba');
+}
+
 /* ── OpenLigaDB Live Scores (free, no key needed) ────────────────── */
 
 const OPENLIGA_BASE = 'https://api.openligadb.de';
