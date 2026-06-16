@@ -108,6 +108,7 @@ export function isRealFootballMatch(match: Match) {
   if (
     combined.includes('nfl') ||
     combined.includes('american football') ||
+    combined.includes('american-football') ||
     combined.includes('super bowl')
   )
     return false;
@@ -132,7 +133,7 @@ export function isBasketballSport(sport: Sport) {
 
 export function looksLikeAmericanFootballMatch(match: Match) {
   const combined = `${match.category} ${match.title} ${match.teams?.home?.name ?? ''} ${match.teams?.away?.name ?? ''}`.toLowerCase();
-  return combined.includes('nfl') || combined.includes('american football') || combined.includes('super bowl');
+  return combined.includes('nfl') || combined.includes('american football') || combined.includes('american-football') || combined.includes('super bowl');
 }
 
 export function looksLikeBasketballMatch(match: Match) {
